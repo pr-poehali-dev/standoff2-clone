@@ -1,0 +1,32 @@
+{
+  "tests": [
+    {
+      "name": "Get player progress",
+      "method": "GET",
+      "path": "/?player_id=test_player",
+      "expectedStatus": 200,
+      "expectedBody": {
+        "player_id": "string",
+        "total_kills": "number",
+        "total_deaths": "number"
+      },
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Update player stats",
+      "method": "POST",
+      "path": "/",
+      "body": {
+        "player_id": "test_player",
+        "kills": 5,
+        "deaths": 2,
+        "won": true
+      },
+      "expectedStatus": 200,
+      "expectedBody": {
+        "total_kills": "number"
+      },
+      "bodyMatcher": "partial"
+    }
+  ]
+}
