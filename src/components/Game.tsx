@@ -8,6 +8,7 @@ interface Player {
   health: number;
   team: 'blue' | 'red';
   id: number;
+  name: string;
 }
 
 interface Bullet {
@@ -16,6 +17,7 @@ interface Bullet {
   vx: number;
   vy: number;
   team: 'blue' | 'red';
+  damage: number;
 }
 
 interface Obstacle {
@@ -31,7 +33,23 @@ interface GameProgress {
   wins: number;
   losses: number;
   experience: number;
+  level: number;
 }
+
+interface Weapon {
+  name: string;
+  damage: number;
+  fireRate: number;
+  bulletSpeed: number;
+  magazineSize: number;
+  unlockLevel: number;
+}
+
+const WEAPONS: Weapon[] = [
+  { name: 'Пистолет', damage: 15, fireRate: 500, bulletSpeed: 8, magazineSize: 12, unlockLevel: 1 },
+  { name: 'Автомат', damage: 10, fireRate: 150, bulletSpeed: 10, magazineSize: 30, unlockLevel: 2 },
+  { name: 'Снайперка', damage: 50, fireRate: 1500, bulletSpeed: 15, magazineSize: 5, unlockLevel: 5 },
+];
 
 const Game = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -44,11 +62,14 @@ const Game = () => {
     wins: 0,
     losses: 0,
     experience: 0,
+    level: 1,
   });
   const [lastShootTime, setLastShootTime] = useState(0);
   const [isMobile, setIsMobile] = useState(false);
   const [joystickActive, setJoystickActive] = useState(false);
   const [joystickPos, setJoystickPos] = useState({ x: 0, y: 0 });
+  const [ammo, setAmmo] = useState(500);
+  const [currentWeapon, setCurrentWeapon] = useState(0);
   const joystickStartRef = useRef({ x: 0, y: 0 });
 
   const playerRef = useRef<Player>({
@@ -58,6 +79,17 @@ const Game = () => {
     health: 100,
     team: 'blue',
     id: 0,
+    name: 'Боль',
+  });
+
+  const bossRef = useRef<Player>({
+    x: 800,
+    y: 300,
+    angle: Math.PI,
+    health: 100,
+    team: 'red',
+    id: 999,
+    name: 'Боль (Враг)',
   });
 
   const enemiesRef = useRef<Player[]>([]);
@@ -92,7 +124,8 @@ const Game = () => {
         'https://functions.poehali.dev/51986827-6ede-4dc3-8a70-1c03bbfca9bc?player_id=guest'
       );
       const data = await response.json();
-      setProgress(data);
+      const level = Math.floor(data.experience / 100) + 1;
+      setProgress({ ...data, level });
     } catch (error) {
       console.error('Failed to load progress:', error);
     }
@@ -117,7 +150,8 @@ const Game = () => {
   };
 
   useEffect(() => {
-    for (let i = 0; i < 3; i++) {
+    enemiesRef.current.push(bossRef.current);
+    for (let i = 0; i < 2; i++) {
       enemiesRef.current.push({
         x: 700 + Math.random() * 100,
         y: 100 + Math.random() * 400,
@@ -125,6 +159,7 @@ const Game = () => {
         health: 100,
         team: 'red',
         id: i + 1,
+        name: `Враг ${i + 1}`,
       });
     }
   }, []);
@@ -174,6 +209,9 @@ const Game = () => {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       keysRef.current.add(e.key.toLowerCase());
+      if (e.key === '1') setCurrentWeapon(0);
+      if (e.key === '2' && progress.level >= 2) setCurrentWeapon(1);
+      if (e.key === '3' && progress.level >= 5) setCurrentWeapon(2);
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
@@ -207,21 +245,26 @@ const Game = () => {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mousedown', handleMouseDown);
     };
-  }, [gameStarted]);
+  }, [gameStarted, progress.level]);
 
   const shoot = () => {
+    if (ammo <= 0) return;
+    
+    const weapon = WEAPONS[currentWeapon];
     const now = Date.now();
-    if (now - lastShootTime < 500) return;
+    if (now - lastShootTime < weapon.fireRate) return;
     
     setLastShootTime(now);
+    setAmmo((prev) => prev - 1);
+    
     const player = playerRef.current;
-    const speed = 8;
     bulletsRef.current.push({
       x: player.x,
       y: player.y,
-      vx: Math.cos(player.angle) * speed,
-      vy: Math.sin(player.angle) * speed,
+      vx: Math.cos(player.angle) * weapon.bulletSpeed,
+      vy: Math.sin(player.angle) * weapon.bulletSpeed,
       team: player.team,
+      damage: weapon.damage,
     });
   };
 
@@ -297,21 +340,36 @@ const Game = () => {
           const enemy = enemiesRef.current[i];
           const dist = Math.hypot(bullet.x - enemy.x, bullet.y - enemy.y);
           if (dist < 20 && bullet.team !== enemy.team) {
-            enemy.health -= 25;
+            enemy.health -= bullet.damage;
+            
             if (enemy.health <= 0) {
+              const isBoss = enemy.id === 999;
               enemiesRef.current.splice(i, 1);
               gameSessionRef.current.kills++;
               setScore((prev) => ({ ...prev, blue: prev.blue + 1 }));
               
               setTimeout(() => {
-                enemiesRef.current.push({
-                  x: 700 + Math.random() * 100,
-                  y: 100 + Math.random() * 400,
-                  angle: Math.PI,
-                  health: 100,
-                  team: 'red',
-                  id: Date.now(),
-                });
+                const newEnemy: Player = isBoss
+                  ? {
+                      x: 700 + Math.random() * 100,
+                      y: 100 + Math.random() * 400,
+                      angle: Math.PI,
+                      health: 100,
+                      team: 'red',
+                      id: 999,
+                      name: 'Боль (Враг)',
+                    }
+                  : {
+                      x: 700 + Math.random() * 100,
+                      y: 100 + Math.random() * 400,
+                      angle: Math.PI,
+                      health: 100,
+                      team: 'red',
+                      id: Date.now(),
+                      name: `Враг ${Math.floor(Math.random() * 10)}`,
+                    };
+                enemiesRef.current.push(newEnemy);
+                if (isBoss) bossRef.current = newEnemy;
               }, 3000);
             }
             return false;
@@ -320,7 +378,7 @@ const Game = () => {
 
         const distToPlayer = Math.hypot(bullet.x - player.x, bullet.y - player.y);
         if (distToPlayer < 20 && bullet.team !== player.team) {
-          player.health -= 25;
+          player.health -= bullet.damage;
           if (player.health <= 0) {
             gameSessionRef.current.deaths++;
             setScore((prev) => ({ ...prev, red: prev.red + 1 }));
@@ -339,14 +397,17 @@ const Game = () => {
         const dy = player.y - enemy.y;
         enemy.angle = Math.atan2(dy, dx);
 
-        if (Math.random() < 0.015) {
-          const speed = 6;
+        const shootChance = enemy.id === 999 ? 0.02 : 0.01;
+        if (Math.random() < shootChance) {
+          const damage = enemy.id === 999 ? 20 : 10;
+          const speed = enemy.id === 999 ? 8 : 6;
           bulletsRef.current.push({
             x: enemy.x,
             y: enemy.y,
             vx: Math.cos(enemy.angle) * speed,
             vy: Math.sin(enemy.angle) * speed,
             team: enemy.team,
+            damage,
           });
         }
       });
@@ -367,20 +428,35 @@ const Game = () => {
         ctx.translate(p.x, p.y);
         ctx.rotate(p.angle);
 
+        const isBoss = p.id === 999;
+        const size = isBoss ? 20 : 15;
+        
         ctx.fillStyle = p.team === 'blue' ? '#0EA5E9' : '#ea384c';
         ctx.beginPath();
-        ctx.arc(0, 0, 15, 0, Math.PI * 2);
+        ctx.arc(0, 0, size, 0, Math.PI * 2);
         ctx.fill();
 
+        if (isBoss) {
+          ctx.strokeStyle = '#FFD700';
+          ctx.lineWidth = 3;
+          ctx.stroke();
+        }
+
         ctx.fillStyle = '#FFFFFF';
-        ctx.fillRect(10, -3, 12, 6);
+        ctx.fillRect(size - 5, -3, 12, 6);
 
         ctx.restore();
 
+        ctx.font = '10px Arial';
+        ctx.fillStyle = '#FFFFFF';
+        ctx.textAlign = 'center';
+        ctx.fillText(p.name, p.x, p.y - size - 15);
+
+        const barWidth = isBoss ? 50 : 40;
         ctx.fillStyle = p.team === 'blue' ? '#0EA5E9' : '#ea384c';
-        ctx.fillRect(p.x - 20, p.y - 25, 40, 4);
+        ctx.fillRect(p.x - barWidth / 2, p.y - size - 10, barWidth, 4);
         ctx.fillStyle = '#22C55E';
-        ctx.fillRect(p.x - 20, p.y - 25, (40 * p.health) / 100, 4);
+        ctx.fillRect(p.x - barWidth / 2, p.y - size - 10, (barWidth * p.health) / 100, 4);
       };
 
       drawPlayer(player);
@@ -414,16 +490,37 @@ const Game = () => {
   const canvasWidth = isMobile ? Math.min(window.innerWidth - 20, 800) : 1000;
   const canvasHeight = isMobile ? Math.min(window.innerHeight * 0.6, 600) : 600;
 
+  const availableWeapons = WEAPONS.filter((w) => w.unlockLevel <= progress.level);
+
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-[#0F1419] p-2 md:p-4">
-      <div className="mb-2 md:mb-4 flex gap-4 md:gap-8 items-center text-sm md:text-base">
+      <div className="mb-2 md:mb-4 flex gap-4 md:gap-8 items-center text-sm md:text-base flex-wrap justify-center">
         <div className="text-[#0EA5E9] font-bold">Синие: {score.blue}</div>
         <div className="text-white font-bold text-xl md:text-3xl">{formatTime(timeLeft)}</div>
         <div className="text-[#ea384c] font-bold">Красные: {score.red}</div>
       </div>
 
-      <div className="mb-2 text-white/60 text-xs md:text-sm">
-        Очки: {progress.experience} | Побед: {progress.wins} | Убийств: {progress.total_kills}
+      <div className="mb-2 text-white/80 text-xs md:text-sm flex gap-4 flex-wrap justify-center">
+        <span>Уровень: {progress.level}</span>
+        <span>Очки: {progress.experience}</span>
+        <span>Патроны: {ammo}/500</span>
+        <span className="text-yellow-400">{WEAPONS[currentWeapon].name}</span>
+      </div>
+
+      <div className="mb-2 text-white/60 text-xs flex gap-2">
+        {availableWeapons.map((weapon, idx) => (
+          <button
+            key={idx}
+            onClick={() => setCurrentWeapon(WEAPONS.indexOf(weapon))}
+            className={`px-2 py-1 rounded ${
+              currentWeapon === WEAPONS.indexOf(weapon)
+                ? 'bg-[#0EA5E9] text-white'
+                : 'bg-white/10 hover:bg-white/20'
+            }`}
+          >
+            {idx + 1}. {weapon.name}
+          </button>
+        ))}
       </div>
 
       {!gameStarted && (
@@ -444,7 +541,7 @@ const Game = () => {
 
       {!isMobile && (
         <div className="mt-4 text-white/60 text-sm">
-          WASD — движение | Мышь — прицел | ЛКМ — выстрел (КД: 0.5с)
+          WASD — движение | Мышь — прицел | ЛКМ — выстрел | 1-3 — смена оружия
         </div>
       )}
 
@@ -474,18 +571,23 @@ const Game = () => {
       )}
 
       {timeLeft === 0 && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-20">
-          <div className="bg-[#1A1F2C] p-8 rounded-lg text-center">
-            <h2 className="text-3xl font-bold text-white mb-4">
-              {score.blue > score.red ? 'ПОБЕДА!' : 'ПОРАЖЕНИЕ'}
+        <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-20 p-4">
+          <div className="bg-[#1A1F2C] p-6 md:p-8 rounded-lg text-center max-w-md w-full">
+            <h2 className="text-4xl md:text-6xl font-bold text-white mb-2">
+              {score.blue > score.red ? 'Победа! 👍' : 'Поражение :('}
             </h2>
-            <div className="text-white/80 mb-4">
+            <div className="text-white/80 mb-6 space-y-2">
+              <p className="text-lg">Счёт: {score.blue} - {score.red}</p>
               <p>Убийств: {gameSessionRef.current.kills}</p>
               <p>Смертей: {gameSessionRef.current.deaths}</p>
+              <p>Патронов израсходовано: {500 - ammo}</p>
+              <p className="text-yellow-400 font-bold">
+                Уровень {progress.level} | {progress.experience} очков
+              </p>
             </div>
             <button
               onClick={() => window.location.reload()}
-              className="bg-[#0EA5E9] hover:bg-[#0284C7] text-white font-bold px-6 py-3 rounded-lg"
+              className="bg-[#0EA5E9] hover:bg-[#0284C7] text-white font-bold px-8 py-3 rounded-lg transition-colors"
             >
               НОВАЯ ИГРА
             </button>
